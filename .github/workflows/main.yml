@@ -39,3 +39,12 @@ jobs:
       - name: Lancer la simulation
 
         run: python robot.py
+              - name: Sauvegarder les resultats
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultats-robot
+          path: |
+            etat.json
+            transactions.csv
+            index.html
+          if-no-files-found: warn
