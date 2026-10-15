@@ -1,61 +1,82 @@
 name: Robot trading simulation
 
 on:
-
-  workflow_dispatch: {}
-
+  workflow_dispatch:
   schedule:
-
-    - cron: '30 16 * * 1-5'
+    - cron: '*/15 13-21 * * 1-5'
 
 permissions:
-
   contents: read
 
+concurrency:
+  group: robot-simulation
+  cancel-in-progress: false
+
 jobs:
-
   simulation:
-
     runs-on: ubuntu-latest
-
     steps:
+      - name: Verifier les heures du Quebec
+        id: marche
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ouvert=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          jour=$(TZ=America/Toronto date +%u)
+          heure=$(TZ=America/Toronto date +%H%M)
+          if [ "$jour" -le 5 ] && [ "$heure" -ge 0930 ] && [ "$heure" -le 1600 ]; then
+            echo "ouvert=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ouvert=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Recuperer les fichiers
-
+        if: steps.marche.outputs.ouvert == 'true'
         uses: actions/checkout@v4
 
       - name: Installer Python
-
+        if: steps.marche.outputs.ouvert == 'true'
         uses: actions/setup-python@v5
-
         with:
+          python-version: '3.11'
 
-        python-version: '3.11'
+      - name: Restaurer le portefeuille
+        if: steps.marche.outputs.ouvert == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            etat.json
+            transactions.csv
+          key: portefeuille-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            portefeuille-
 
       - name: Installer les dependances
-
+        if: steps.marche.outputs.ouvert == 'true'
         run: pip install -r requirements.txt
 
       - name: Lancer la simulation
-
+        if: steps.marche.outputs.ouvert == 'true'
         run: python robot.py
-          
 
+      - name: Conserver le portefeuille
+        if: steps.marche.outputs.ouvert == 'true' && success()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            etat.json
+            transactions.csv
+          key: portefeuille-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Sauvegarder les resultats
-
+        if: steps.marche.outputs.ouvert == 'true' && always()
         uses: actions/upload-artifact@v4
-
         with:
-
           name: resultats-robot
-
           path: |
-
             etat.json
-
             transactions.csv
-
             index.html
-
           if-no-files-found: warn
