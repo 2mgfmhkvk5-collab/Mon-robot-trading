@@ -1,7 +1,7 @@
 name: Robot trading - simulation
 
 "on":
-  workflow_dispatch: {}.
+  workflow_dispatch: {}
   schedule:
     - cron: '30 16 * * 1-5'
 
