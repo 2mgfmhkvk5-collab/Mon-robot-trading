@@ -1,89 +1,97 @@
-import json, os, math, html
+"""Simulateur de trading éducatif, sans accès à un courtier."""
+import csv
+import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 import yfinance as yf
 
-ROOT=Path(__file__).parent
-STATE=ROOT/'state.json'
-OUT=ROOT/'docs'/'index.html'
-SYMBOLS=['NVDA','PLUG','WOLF','OUST','MVIS','BTG','HL','UUUU','DNN','SOUN']
-START_CAD=1000.0
-MAX_POSITION_CAD=250.0
-MAX_POSITIONS=3
-FEE_CAD=1.0 # estimation par ordre, ajustable
-USD_CAD=1.38 # taux de simulation fixe; remplacer par taux réel avant tout test sérieux
+ROOT = Path(__file__).parent
+STATE = ROOT / 'etat.json'
+HISTORY = ROOT / 'transactions.csv'
+REPORT = ROOT / 'index.html'
+TICKERS = ['SHOP.TO', 'NVDA', 'VNP.TO', 'GURU.TO', 'MTY.TO']
+INITIAL = 1000.0
+MAX_POSITION = 0.20
+STOP_LOSS = 0.08
+TAKE_PROFIT = 0.15
 
-def load():
-    if STATE.exists(): return json.loads(STATE.read_text())
-    return {'cash':START_CAD,'positions':{},'pending':{},'trades':[],'history':[],'last_day':None}
+def load_state():
+    if STATE.exists():
+        return json.loads(STATE.read_text(encoding='utf-8'))
+    return {'cash': INITIAL, 'positions': {}, 'last_prices': {}, 'updated': None}
 
-def save(s): STATE.write_text(json.dumps(s,indent=2,ensure_ascii=False)+'\n')
+def prices():
+    result = {}
+    for ticker in TICKERS:
+        try:
+            df = yf.Ticker(ticker).history(period='65d', auto_adjust=True)
+            if len(df) < 22:
+                print('Données insuffisantes:', ticker)
+                continue
+            close = df['Close'].dropna()
+            if len(close) < 22:
+                continue
+            # Signal simple: croisement moyenne 5 jours / 20 jours.
+            recent = float(close.iloc[-5:].mean())
+            slow = float(close.iloc[-20:].mean())
+            prev_recent = float(close.iloc[-6:-1].mean())
+            prev_slow = float(close.iloc[-21:-1].mean())
+            result[ticker] = {'price': round(float(close.iloc[-1]), 4), 'buy': prev_recent <= prev_slow and recent > slow, 'sell': prev_recent >= prev_slow and recent < slow}
+        except Exception as exc:
+            print('Erreur de données', ticker, str(exc))
+    return result
 
-def market_data(symbol):
-    try:
-        df=yf.download(symbol,period='4mo',interval='1d',auto_adjust=True,progress=False,threads=False)
-        if df is None or len(df)<25:return None
-        if hasattr(df.columns,'nlevels') and df.columns.nlevels>1:df.columns=df.columns.get_level_values(0)
-        df=df.dropna(subset=['Open','Close','Volume'])
-        if len(df)<25:return None
-        return df
-    except Exception as exc:
-        print('Data error',symbol,str(exc));return None
+def main():
+    state = load_state()
+    data = prices()
+    if not data:
+        raise RuntimeError('Aucun prix disponible : état inchangé, aucun ordre simulé.')
+    transactions = []
+    positions = state['positions']
+    cash = float(state['cash'])
+    for ticker, info in data.items():
+        if ticker not in positions:
+            continue
+        position = positions[ticker]
+        price = info['price']
+        if info['sell'] or price <= position['entry'] * (1 - STOP_LOSS) or price >= position['entry'] * (1 + TAKE_PROFIT):
+            qty = int(position['qty'])
+            cash += qty * price
+            transactions.append([datetime.now(timezone.utc).isoformat(), 'VENTE', ticker, qty, price, round(qty * price, 2)])
+            del positions[ticker]
+    equity = cash + sum(float(pos['qty']) * data.get(ticker, {}).get('price', state.get('last_prices', {}).get(ticker, pos['entry'])) for ticker, pos in positions.items())
+    for ticker, info in data.items():
+        if not info['buy'] or ticker in positions or len(positions) >= 5:
+            continue
+        price = info['price']
+        # Conversion CAD/USD volontairement non automatisée : éviter les erreurs de devises.
+        # Les titres US ne sont pas négociés dans cette version CAD.
+        if not ticker.endswith('.TO'):
+            continue
+        budget = min(cash, equity * MAX_POSITION)
+        qty = int(budget // price)
+        if qty < 1:
+            continue
+        cash -= qty * price
+        positions[ticker] = {'qty': qty, 'entry': price}
+        transactions.append([datetime.now(timezone.utc).isoformat(), 'ACHAT', ticker, qty, price, round(qty * price, 2)])
+    state['cash'] = round(cash, 2)
+    state['last_prices'].update({t: x['price'] for t, x in data.items()})
+    state['updated'] = datetime.now(timezone.utc).isoformat()
+    STATE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding='utf-8')
+    if transactions:
+        first = not HISTORY.exists()
+        with HISTORY.open('a', newline='', encoding='utf-8') as fh:
+            writer = csv.writer(fh)
+            if first:
+                writer.writerow(['date_utc', 'action', 'symbole', 'quantite', 'prix', 'montant'])
+            writer.writerows(transactions)
+    equity = cash + sum(float(p['qty']) * state['last_prices'].get(t, p['entry']) for t, p in positions.items())
+    import html
+    rows = ''.join(f'<tr><td>{html.escape(t)}</td><td>{p["qty"]}</td><td>{p["entry"]:.2f} $</td><td>{state["last_prices"].get(t, p["entry"]):.2f} $</td></tr>' for t, p in positions.items()) or '<tr><td colspan="4">Aucune position actuellement</td></tr>'
+    REPORT.write_text(f'''<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mon robot trading — simulation</title><style>body{{font-family:system-ui;max-width:760px;margin:auto;padding:24px;background:#f6f8fa;color:#17212d}}main{{background:white;border-radius:16px;padding:22px}}table{{border-collapse:collapse;width:100%}}td,th{{border-bottom:1px solid #ddd;padding:12px;text-align:left}}.num{{font-size:2rem;font-weight:bold}}</style><main><h1>Mon robot trading</h1><p>SIMULATION SEULEMENT — aucun ordre réel</p><p>Valeur estimée du portefeuille</p><div class="num">{equity:.2f} $ CAD</div><p>Espèces : {cash:.2f} $ CAD</p><p>Dernière mise à jour (UTC) : {html.escape(state['updated'])}</p><h2>Positions simulées</h2><table><tr><th>Titre</th><th>Qté</th><th>Prix d'achat</th><th>Dernier prix</th></tr>{rows}</table><p>Les cours peuvent être différés. Simulation sans frais ni glissement. Aucun rendement garanti.</p></main></html>''', encoding='utf-8')
+    print('Simulation terminée. Valeur CAD estimée:', round(equity, 2), 'Transactions:', len(transactions))
 
-def run():
-    s=load(); data={x:market_data(x) for x in SYMBOLS}
-    valid=[(x,d) for x,d in data.items() if d is not None]
-    if not valid: raise RuntimeError('Aucune donnée de marché valide. Aucun état modifié.')
-    dates=[str(d.index[-1].date()) for _,d in valid]
-    day=max(dates)
-    if s['last_day']==day:
-        render(s,data,'Aucune nouvelle séance : état inchangé.');return
-    # Pour éviter les signaux sur données décalées, ne traite que les symboles actualisés au même jour.
-    today={x:d for x,d in valid if str(d.index[-1].date())==day}
-    if len(today)<3:raise RuntimeError('Moins de trois symboles actualisés. Exécution annulée.')
-    # Les signaux créés la veille sont exécutés à l\'ouverture de la séance suivante (modèle approximatif).
-    pending=s.get('pending',{})
-    for x,order in list(pending.items()):
-        if x not in today:continue
-        d=today[x]; open_price=float(d['Open'].iloc[-1]);price_cad=open_price*USD_CAD
-        if not (math.isfinite(price_cad) and price_cad>0):continue
-        if order=='SELL' and x in s['positions']:
-            p=s['positions'].pop(x);proceeds=p['qty']*price_cad-FEE_CAD
-            s['cash']+=proceeds;s['trades'].append({'date':day,'symbol':x,'side':'SELL','qty':p['qty'],'price_cad':round(price_cad,4),'net_cad':round(proceeds,2)})
-        elif order=='BUY' and x not in s['positions'] and len(s['positions'])<MAX_POSITIONS:
-            budget=min(MAX_POSITION_CAD,s['cash']-FEE_CAD);qty=int(budget/price_cad)
-            if qty>0 and s['cash']>=qty*price_cad+FEE_CAD:
-                cost=qty*price_cad+FEE_CAD;s['cash']-=cost
-                s['positions'][x]={'qty':qty,'entry_cad':price_cad,'highest_cad':price_cad}
-                s['trades'].append({'date':day,'symbol':x,'side':'BUY','qty':qty,'price_cad':round(price_cad,4),'net_cad':round(-cost,2)})
-    new_pending={}
-    for x,d in today.items():
-        close=float(d['Close'].iloc[-1]);vol=float(d['Volume'].iloc[-1]);
-        if not (math.isfinite(close) and math.isfinite(vol)):continue
-        ma5=float(d['Close'].tail(5).mean());ma20=float(d['Close'].tail(20).mean());prev5=float(d['Close'].iloc[-6:-1].mean());prev20=float(d['Close'].iloc[-21:-1].mean());v20=float(d['Volume'].iloc[-21:-1].mean())
-        if x in s['positions']:
-            p=s['positions'][x];p['highest_cad']=max(p.get('highest_cad',p['entry_cad']),close*USD_CAD)
-            change=close*USD_CAD/p['entry_cad']-1
-            if change<=-0.06 or change>=0.12 or (prev5>=prev20 and ma5<ma20):new_pending[x]='SELL'
-        elif 0.01<=close<=5 and prev5<=prev20 and ma5>ma20 and v20>0 and vol>=1.5*v20:
-            new_pending[x]='BUY'
-    equity=s['cash']+sum(p['qty']*float(today[x]['Close'].iloc[-1])*USD_CAD for x,p in s['positions'].items() if x in today)
-    # Si une position ne dispose pas de cotation fraîche, valoriser à son dernier plus haut mémorisé est interdit : conserver le dernier prix connu.
-    for x,p in s['positions'].items():
-        if x not in today:equity+=p['qty']*p.get('last_cad',p['entry_cad'])
-        else:p['last_cad']=float(today[x]['Close'].iloc[-1])*USD_CAD
-    s['history'].append({'date':day,'equity_cad':round(equity,2)})
-    # coupe-circuit pour les prochains achats si la perte du jour atteint 3% du capital de départ
-    if len(s['history'])>=2 and equity<=s['history'][-2]['equity_cad']-30:
-        new_pending={x:v for x,v in new_pending.items() if v!='BUY'}
-    s['pending']=new_pending;s['last_day']=day
-    save(s);render(s,data,'Simulation seulement. Aucune transaction réelle.')
-
-def render(s,data,note):
-    holdings=''.join(f"<tr><td>{html.escape(x)}</td><td>{p['qty']}</td><td>{p['entry_cad']:.3f} $</td></tr>" for x,p in s['positions'].items()) or '<tr><td colspan="3">Aucune position</td></tr>'
-    trades=''.join(f"<tr><td>{html.escape(t['date'])}</td><td>{html.escape(t['symbol'])}</td><td>{t['side']}</td><td>{t['qty']}</td><td>{t['net_cad']:.2f} $</td></tr>" for t in s['trades'][-30:][::-1]) or '<tr><td colspan="5">Aucune transaction</td></tr>'
-    equity=s['history'][-1]['equity_cad'] if s['history'] else START_CAD
-    OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(f'''<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Robot de trading · Simulation</title><style>body{{font:16px -apple-system,Arial;background:#101827;color:#f5f7fb;margin:0;padding:22px;max-width:850px;margin:auto}}.card{{background:#1d2b3d;padding:20px;border-radius:15px;margin:15px 0}}h1{{font-size:26px}}.big{{font-size:36px;font-weight:750}}table{{border-collapse:collapse;width:100%;font-size:14px}}td,th{{text-align:left;padding:9px;border-bottom:1px solid #445}}.muted{{color:#b4c5d8}}.warn{{color:#ffcd70}}</style><h1>Robot de trading</h1><p class="warn">SIMULATION — Aucun ordre envoyé à Disnat</p><div class="card"><div class="muted">Valeur simulée</div><div class="big">{equity:,.2f} $ CAD</div><p>Liquidités : {s['cash']:,.2f} $ CAD</p><p>Dernière séance traitée : {html.escape(str(s['last_day']))}</p></div><div class="card"><h2>Positions</h2><table><tr><th>Symbole</th><th>Actions</th><th>Entrée CAD</th></tr>{holdings}</table></div><div class="card"><h2>Transactions virtuelles</h2><table><tr><th>Date</th><th>Titre</th><th>Type</th><th>Qté</th><th>Flux CAD</th></tr>{trades}</table></div><div class="card"><h2>Ordres prévus pour la prochaine séance</h2><p>{html.escape(', '.join(x+': '+v for x,v in s.get('pending',{}).items()) or 'Aucun')}</p></div><p class="muted">{html.escape(note)} Données Yahoo Finance non garanties, frais estimés de 1 $/ordre et taux fixe 1 USD = 1,38 CAD. Ni performance réelle ni conseil d'investissement. Dernière génération UTC : {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}.</p></html>''',encoding='utf-8')
-
-if __name__=='__main__':run()
+if __name__ == '__main__':
+    main()

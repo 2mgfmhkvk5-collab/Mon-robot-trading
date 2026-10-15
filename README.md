@@ -1,24 +1,29 @@
-# Robot iPhone / iPad — simulation uniquement
+# Mon robot trading — simulation
 
-Ce projet n'a AUCUN accès à Disnat. Il ne passe aucun ordre réel.
+Simulation éducative de 1 000 $ CAD, sans connexion à Disnat et sans ordres réels.
 
-## Installation depuis Safari sur iPhone/iPad
+## Installation depuis Safari sur iPhone
+1. Ouvrir le dépôt GitHub `Mon-robot-trading`, onglet Code.
+2. Charger `robot.py`, `requirements.txt` et `README.md` à la racine du dépôt (menu Add file / Upload files).
+3. Remplacer `.github/workflows/main.yml` par celui de cette archive. Ne pas créer un second fichier `main.yml`.
+4. Enregistrer (Commit changes).
+5. Dans Actions, ouvrir « Robot trading - simulation », puis « Run workflow » pour tester.
+6. Consulter `index.html` et `etat.json` dans le dépôt après une exécution réussie.
 
-1. Créez un compte sur https://github.com (offre gratuite).
-2. Créez un dépôt **public** nommé `robot-trading-demo` (sans données personnelles). Les transactions simulées et le portefeuille seront publics. Un dépôt privé nécessite de vérifier les conditions de GitHub Pages selon votre offre.
-3. Dans Safari, ouvrez votre dépôt et utilisez « Ajouter un fichier » → « Téléverser des fichiers ». Décompressez le ZIP dans l'app Fichiers et importez `robot.py`, `requirements.txt`, `state.json` et le dossier `docs` avec son fichier `index.html` (ce dernier est généré après la première exécution). Importez aussi `.github/workflows/robot.yml` en respectant exactement l'arborescence. Sur iPhone, l'interface peut exiger « Demander le site pour ordinateur » et il peut être plus simple de créer les dossiers avec « Create new file » et leur chemin complet.
-4. Dans **Settings → Actions → General**, vérifiez que les Actions sont autorisées et que **Workflow permissions** est réglé sur **Read and write permissions**.
-5. Ouvrez **Actions → Simulation trading quotidienne → Run workflow** pour lancer un essai. Si le lancement échoue, ouvrez le journal de l'Action. Ne supposez pas qu'un ordre a été exécuté.
-6. Ouvrez **Settings → Pages → Build and deployment → Deploy from a branch → main → /docs → Save**. Le lien Pages sera affiché dans Settings → Pages après publication. Il peut prendre quelques minutes à apparaître.
-7. Dans Safari, ouvrez ce lien et faites **Partager → Sur l'écran d'accueil** pour un accès direct.
+Le fichier `.github/workflows/main.yml` exécute la simulation les jours ouvrables à 16 h 30 UTC, soit 12 h 30 au Québec durant l'heure d'été et 11 h 30 durant l'heure d'hiver. Les horaires GitHub ne sont pas garantis à la minute.
 
-## Limites importantes
+## Stratégie et limites
+- Signal : croisement des moyennes mobiles de clôture 5 et 20 jours.
+- Titres canadiens suivis pour les ordres : SHOP.TO, VNP.TO, GURU.TO, MTY.TO. NVDA est observé mais non négocié, pour éviter les erreurs de conversion USD/CAD.
+- Taille maximum par nouvelle position : 20 % de la valeur du portefeuille.
+- Vente simulée : signal inverse, baisse de 8 % ou hausse de 15 % depuis le prix d'entrée, évalués uniquement à l'exécution quotidienne.
+- Pas de vente à découvert, levier ou marge.
+- Les frais, impôts, slippage et changements de devise ne sont pas simulés. Les prix historiques Yahoo Finance ne sont pas garantis et peuvent être différés.
+- Les données de portefeuille sont enregistrées dans le dépôt : garder le dépôt privé si souhaité.
+- Le robot ne doit jamais recevoir des identifiants de courtage.
 
-- Exécution programmée en semaine à 23 h 30 UTC, après la clôture américaine; GitHub Actions peut être retardé ou désactivé en cas d'inactivité.
-- Les données Yahoo Finance peuvent être manquantes, retardées ou révisées. L'historique est ajusté et les cours sont approximatifs.
-- Les ordres virtuels sont calculés à l'ouverture du jour suivant un signal; le système ne vérifie pas toutes les conditions intrajournalières et n'est pas un backtest fiable.
-- Le stop de 6 % est vérifié à la clôture, puis la vente virtuelle a lieu à l'ouverture suivante : il ne garantit PAS une perte limitée à 6 %.
-- Le taux USD/CAD est volontairement fixé à 1,38 pour cette démonstration. Les frais sont hypothétiques (1 CAD/ordre), et le spread, la liquidité et la fiscalité ne sont pas modélisés.
-- Les symboles de départ sont des exemples et peuvent être au-dessus de 5 USD ou changer de secteur. Seuls les achats dont le cours du signal est entre 0,01 et 5 USD sont envisagés.
-- Les historiques de prix ne prouvent pas qu'une stratégie sera rentable. Aucun service gratuit n'est garanti permanent ou sans limites.
-- Aucune API Disnat n'est utilisée. Ne partagez jamais vos identifiants bancaires ou codes 2FA avec un robot.
+## Tableau de bord
+`index.html` est généré après la première exécution. Ouvrir ce fichier depuis GitHub pour voir le HTML brut; pour un tableau de bord web rendu, activer GitHub Pages uniquement si l'exposition publique de ces données est acceptable. Le fichier `etat.json` fournit également le solde et les positions.
+
+## Attention
+Ne pas mettre en production réelle. La stratégie n'est pas validée par backtest, les arrêts de pertes ne sont pas garantis entre deux exécutions, et l'automatisation GitHub Actions peut échouer ou être retardée.
