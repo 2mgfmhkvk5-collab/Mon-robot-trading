@@ -3,7 +3,7 @@ name: Robot trading - simulation
 "on":
   workflow_dispatch:
   schedule:
-    - cron: '30 22 * * 1-5'
+    - cron: '30 16 * * 1-5'
 
 permissions:
   contents: read
