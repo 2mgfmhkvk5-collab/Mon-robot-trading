@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: robot-simulation
+  group: robot-simulation-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -42,41 +42,41 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Restaurer le portefeuille
+      - name: Restaurer le portefeuille V2
         if: steps.marche.outputs.ouvert == 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
-            etat.json
-            transactions.csv
-          key: portefeuille-${{ github.run_id }}-${{ github.run_attempt }}
+            etat_v2.json
+            transactions_v2.csv
+          key: v2-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            portefeuille-
+            v2-${{ github.ref_name }}-
 
       - name: Installer les dependances
         if: steps.marche.outputs.ouvert == 'true'
         run: pip install -r requirements.txt
 
-      - name: Lancer la simulation
+      - name: Lancer la simulation V2
         if: steps.marche.outputs.ouvert == 'true'
         run: python robot.py
 
-      - name: Conserver le portefeuille
+      - name: Conserver le portefeuille V2
         if: steps.marche.outputs.ouvert == 'true' && success()
         uses: actions/cache/save@v4
         with:
           path: |
-            etat.json
-            transactions.csv
-          key: portefeuille-${{ github.run_id }}-${{ github.run_attempt }}
+            etat_v2.json
+            transactions_v2.csv
+          key: v2-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Sauvegarder les resultats
+      - name: Sauvegarder les resultats V2
         if: steps.marche.outputs.ouvert == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
-          name: resultats-robot
+          name: resultats-robot-v2
           path: |
-            etat.json
-            transactions.csv
-            index.html
+            etat_v2.json
+            transactions_v2.csv
+            index_v2.html
           if-no-files-found: warn
