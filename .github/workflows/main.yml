@@ -49,9 +49,9 @@ jobs:
           path: |
             etat_v2.json
             transactions_v2.csv
-          key: v2-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            v2-${{ github.ref_name }}-
+          key: v2-test-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: 
+                      v2-test-
 
       - name: Installer les dependances
         if: steps.marche.outputs.ouvert == 'true'
@@ -68,7 +68,7 @@ jobs:
           path: |
             etat_v2.json
             transactions_v2.csv
-          key: v2-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: v2-test-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Sauvegarder les resultats V2
         if: steps.marche.outputs.ouvert == 'true' && always()
